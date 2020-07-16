@@ -23,6 +23,8 @@
 #include <asm/arch/clock_sun6i.h>
 #elif defined(CONFIG_MACH_SUN9I)
 #include <asm/arch/clock_sun9i.h>
+#elif defined(CONFIG_MACH_SUNIV)
+#include <asm/arch/clock_suniv.h>
 #else
 #include <asm/arch/clock_sun4i.h>
 #endif

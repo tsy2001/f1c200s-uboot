@@ -1001,9 +1001,9 @@ config ARCH_SUNXI
 	select CMD_USB if DISTRO_DEFAULTS
 	select CLK
 	select DM
-	select DM_ETH
+	imply DM_ETH
 	select DM_GPIO
-	select DM_KEYBOARD
+	imply DM_KEYBOARD
 	select DM_MMC if MMC
 	select DM_SCSI if SCSI
 	select DM_SERIAL

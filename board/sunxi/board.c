@@ -226,7 +226,7 @@ int board_init(void)
 
 	gd->bd->bi_boot_params = (PHYS_SDRAM_0 + 0x100);
 
-#ifndef CONFIG_ARM64
+#if !defined(CONFIG_ARM64) && !defined(CONFIG_MACH_SUNIV)
 	asm volatile("mrc p15, 0, %0, c0, c1, 1" : "=r"(id_pfr1));
 	debug("id_pfr1: 0x%08x\n", id_pfr1);
 	/* Generic Timer Extension available? */
@@ -253,7 +253,7 @@ int board_init(void)
 #endif
 		}
 	}
-#endif /* !CONFIG_ARM64 */
+#endif /* !CONFIG_ARM64 && !CONFIG_MACH_SUNIV */
 
 	ret = axp_gpio_init();
 	if (ret)
@@ -380,17 +380,19 @@ void board_nand_init(void)
 #ifdef CONFIG_MMC
 static void mmc_pinmux_setup(int sdc)
 {
-	unsigned int pin;
+	__maybe_unused unsigned int pin;
 	__maybe_unused int pins;
 
 	switch (sdc) {
 	case 0:
 		/* SDC0: PF0-PF5 */
+#ifndef CONFIG_UART0_PORT_F
 		for (pin = SUNXI_GPF(0); pin <= SUNXI_GPF(5); pin++) {
 			sunxi_gpio_set_cfgpin(pin, SUNXI_GPF_SDC0);
 			sunxi_gpio_set_pull(pin, SUNXI_GPIO_PULL_UP);
 			sunxi_gpio_set_drv(pin, 2);
 		}
+#endif
 		break;
 
 	case 1:

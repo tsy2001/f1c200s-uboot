@@ -169,6 +169,7 @@ enum sunxi_gpio_number {
 #define SUNXI_GPC_NAND		2
 #define SUNXI_GPC_SPI0		3
 #define SUNXI_GPC_SDC2		3
+#define SUNIV_GPC_SPI0		2
 #define SUN6I_GPC_SDC3		4
 #define SUN50I_GPC_SPI0		4
 
@@ -177,6 +178,7 @@ enum sunxi_gpio_number {
 #define SUNXI_GPD_LVDS0		3
 #define SUNXI_GPD_PWM		2
 
+#define SUNIV_GPE_UART0		5
 #define SUN5I_GPE_SDC2		3
 #define SUN8I_GPE_TWI2		3
 #define SUN50I_GPE_TWI2		3
@@ -247,5 +249,9 @@ int axp_gpio_init(void);
 #else
 static inline int axp_gpio_init(void) { return 0; }
 #endif
+
+int sunxi_gpio_parse_pin_name(const char *pin_name);
+int sunxi_gpio_setup_dt_pins(const void * volatile fdt_blob, int node,
+			     const char * mux_name, int mux_sel);
 
 #endif /* _SUNXI_GPIO_H */

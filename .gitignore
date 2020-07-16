@@ -92,3 +92,4 @@ GTAGS
 *.orig
 *~
 \#*#
+*.map

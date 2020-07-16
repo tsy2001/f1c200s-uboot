@@ -89,6 +89,7 @@
 
 #define SPI0_CLK_DIV_BY_2           0x1000
 #define SPI0_CLK_DIV_BY_4           0x1001
+#define SPI0_CLK_DIV_BY_32          0x100f
 
 /*****************************************************************************/
 
@@ -125,7 +126,12 @@ static bool is_sun6i_gen_spi(void)
 
 static uintptr_t spi0_base_address(void)
 {
-	if (IS_ENABLED(CONFIG_MACH_SUN8I_R40))
+	/*
+	 * suniv comes with a sun6i-style SPI controller at the
+	 * sun4i SPI base address
+	 */
+	if (IS_ENABLED(CONFIG_MACH_SUN8I_R40) ||
+		IS_ENABLED(CONFIG_MACH_SUNIV))
 		return 0x01C05000;
 
 	if (IS_ENABLED(CONFIG_MACH_SUN50I_H6))
@@ -155,11 +161,17 @@ static void spi0_enable_clock(void)
 	if (!IS_ENABLED(CONFIG_MACH_SUN50I_H6))
 		setbits_le32(CCM_AHB_GATING0, (1 << AHB_GATE_OFFSET_SPI0));
 
+#ifndef CONFIG_MACH_SUNIV
 	/* Divide by 4 */
 	writel(SPI0_CLK_DIV_BY_4, base + (is_sun6i_gen_spi() ?
 				  SUN6I_SPI0_CCTL : SUN4I_SPI0_CCTL));
 	/* 24MHz from OSC24M */
 	writel((1 << 31), CCM_SPI0_CLK);
+#else
+	/* Divide by 32, clock source is AHB clock 200MHz */
+	writel(SPI0_CLK_DIV_BY_32, base + (is_sun6i_gen_spi() ?
+				  SUN6I_SPI0_CCTL : SUN4I_SPI0_CCTL));
+#endif
 
 	if (is_sun6i_gen_spi()) {
 		/* Enable SPI in the master mode and do a soft reset */
@@ -189,8 +201,10 @@ static void spi0_disable_clock(void)
 		clrbits_le32(base + SUN4I_SPI0_CTL, SUN4I_CTL_MASTER |
 					     SUN4I_CTL_ENABLE);
 
+#ifndef CONFIG_MACH_SUNIV
 	/* Disable the SPI0 clock */
 	writel(0, CCM_SPI0_CLK);
+#endif
 
 	/* Close the SPI0 gate */
 	if (!IS_ENABLED(CONFIG_MACH_SUN50I_H6))
@@ -211,6 +225,9 @@ static void spi0_init(void)
 	if (IS_ENABLED(CONFIG_MACH_SUN50I) ||
 	    IS_ENABLED(CONFIG_MACH_SUN50I_H6))
 		pin_function = SUN50I_GPC_SPI0;
+
+	if (IS_ENABLED(CONFIG_MACH_SUNIV))
+		pin_function = SUNIV_GPC_SPI0;
 
 	spi0_pinmux_setup(pin_function);
 	spi0_enable_clock();
