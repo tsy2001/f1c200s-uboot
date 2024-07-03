@@ -4,7 +4,7 @@
  */
 
 /dts-v1/;
-#include "suniv-f1c100s.dtsi"
+#include "suniv.dtsi"
 
 #include <dt-bindings/gpio/gpio.h>
 
