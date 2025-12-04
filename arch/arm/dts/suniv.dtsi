@@ -149,53 +149,5 @@
 			resets = <&ccu RST_BUS_UART0>;
 			status = "disabled";
 		};
-
-		uart1: serial@1c25400 {
-			compatible = "snps,dw-apb-uart";
-			reg = <0x01c25400 0x400>;
-			interrupts = <2>;
-			reg-shift = <2>;
-			reg-io-width = <4>;
-			clocks = <&ccu CLK_BUS_UART1>;
-			resets = <&ccu RST_BUS_UART1>;
-			status = "disabled";
-		};
-
-		uart2: serial@1c25800 {
-			compatible = "snps,dw-apb-uart";
-			reg = <0x01c25800 0x400>;
-			interrupts = <3>;
-			reg-shift = <2>;
-			reg-io-width = <4>;
-			clocks = <&ccu CLK_BUS_UART2>;
-			resets = <&ccu RST_BUS_UART2>;
-			status = "disabled";
-		};
-
-		usb_otg: usb@1c13000 {
-			compatible = "allwinner,suniv-musb";
-			reg = <0x01c13000 0x0400>;
-			clocks = <&ccu CLK_BUS_OTG>;
-			resets = <&ccu RST_BUS_OTG>;
-			interrupts = <26>;
-			interrupt-names = "mc";
-			phys = <&usbphy 0>;
-			phy-names = "usb";
-			extcon = <&usbphy 0>;
-			allwinner,sram = <&otg_sram 1>;
-			status = "disabled";
-		};
-
-		usbphy: phy@1c13400 {
-			compatible = "allwinner,suniv-usb-phy";
-			reg = <0x01c13400 0x10>;
-			reg-names = "phy_ctrl";
-			clocks = <&ccu CLK_USB_PHY0>;
-			clock-names = "usb0_phy";
-			resets = <&ccu RST_USB_PHY0>;
-			reset-names = "usb0_reset";
-			#phy-cells = <1>;
-			status = "disabled";
-		};
 	};
 };
