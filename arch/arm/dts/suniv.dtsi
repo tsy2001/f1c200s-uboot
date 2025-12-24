@@ -29,13 +29,6 @@
 			clock-frequency = <32768>;
 			clock-output-names = "osc32k";
 		};
-
-		fake100M: clk-100M {
-			#clock-cells = <0>;
-			compatible = "fixed-clock";
-			clock-frequency = <100000000>;
-			clock-output-names = "fake-100M";
-		};
 	};
 
 	cpus {
@@ -67,12 +60,6 @@
 				#address-cells = <1>;
 				#size-cells = <1>;
 				ranges = <0 0x00010000 0x1000>;
-
-				otg_sram: sram-section@0 {
-					compatible = "allwinner,sun4i-a10-sram-d";
-					reg = <0x0000 0x1000>;
-					status = "disabled";
-				};
 			};
 		};
 
