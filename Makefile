@@ -242,7 +242,7 @@ export	HOSTARCH HOSTOS
 #########################################################################
 
 # set default to nothing for native builds
-CROSS_COMPILE ?=arm-buildroot-linux-musleabi-
+CROSS_COMPILE ?=arm-buildroot-linux-uclibcgnueabi-
 ARCH ?=arm
 
 KCONFIG_CONFIG	?= .config
