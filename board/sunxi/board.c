@@ -43,6 +43,267 @@
 #include <spl.h>
 #include <sy8106a.h>
 #include <asm/setup.h>
+#if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_OLED)
+#include <version.h>
+#include <video_font.h>
+#include <linux/errno.h>
+#include <spi_flash.h>
+#endif
+
+#if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_OLED)
+#define OLED_WIDTH	128
+#define OLED_HEIGHT	64
+#define OLED_PAGES	(OLED_HEIGHT / 8)
+#define OLED_ADDR	0x3C
+
+static int oled_gpio_sda = -1;
+static int oled_gpio_scl = -1;
+static bool oled_inited;
+
+static void oled_delay(void)
+{
+	udelay(5);
+}
+
+static void oled_sda(int high)
+{
+	if (high)
+		gpio_direction_input(oled_gpio_sda);
+	else
+		gpio_direction_output(oled_gpio_sda, 0);
+}
+
+static void oled_scl(int high)
+{
+	if (high)
+		gpio_direction_input(oled_gpio_scl);
+	else
+		gpio_direction_output(oled_gpio_scl, 0);
+}
+
+static void oled_i2c_start(void)
+{
+	oled_sda(1);
+	oled_scl(1);
+	oled_delay();
+	oled_sda(0);
+	oled_delay();
+	oled_scl(0);
+}
+
+static void oled_i2c_stop(void)
+{
+	oled_sda(0);
+	oled_delay();
+	oled_scl(1);
+	oled_delay();
+	oled_sda(1);
+	oled_delay();
+}
+
+static int oled_i2c_write_byte(u8 data)
+{
+	int bit;
+	int nack;
+
+	for (bit = 0; bit < 8; bit++) {
+		oled_sda(data & 0x80);
+		oled_delay();
+		oled_scl(1);
+		oled_delay();
+		oled_scl(0);
+		data <<= 1;
+	}
+
+	/* ACK */
+	oled_sda(1);
+	oled_delay();
+	oled_scl(1);
+	oled_delay();
+	nack = gpio_get_value(oled_gpio_sda);
+	oled_scl(0);
+	oled_delay();
+
+	return nack ? -EIO : 0;
+}
+
+static int oled_i2c_write(u8 control, const u8 *data, size_t len)
+{
+	size_t i;
+	int ret;
+
+	oled_i2c_start();
+	ret = oled_i2c_write_byte(OLED_ADDR << 1);
+	if (ret)
+		goto out;
+	ret = oled_i2c_write_byte(control);
+	if (ret)
+		goto out;
+	for (i = 0; i < len; i++) {
+		ret = oled_i2c_write_byte(data[i]);
+		if (ret)
+			goto out;
+	}
+out:
+	oled_i2c_stop();
+	return ret;
+}
+
+static void oled_set_pixel(u8 *buf, int x, int y)
+{
+	int page;
+	int bit;
+
+	if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT)
+		return;
+
+	page = y >> 3;
+	bit = y & 0x7;
+	buf[page * OLED_WIDTH + x] |= (1 << bit);
+}
+
+static void oled_draw_char(u8 *buf, int x, int y, char c)
+{
+	const u8 *glyph = &video_fontdata[(u8)c * VIDEO_FONT_HEIGHT];
+	int row;
+	int col;
+
+	for (row = 0; row < VIDEO_FONT_HEIGHT; row++) {
+		u8 bits = glyph[row];
+		for (col = 0; col < VIDEO_FONT_WIDTH; col++) {
+			if (bits & (1 << (7 - col)))
+				oled_set_pixel(buf, x + col, y + row);
+		}
+	}
+}
+
+static void oled_draw_text(u8 *buf, int row, const char *text)
+{
+	int x = 0;
+	int i;
+
+	for (i = 0; i < (OLED_WIDTH / VIDEO_FONT_WIDTH) && text[i];
+	     i++) {
+		oled_draw_char(buf, x, row * VIDEO_FONT_HEIGHT, text[i]);
+		x += VIDEO_FONT_WIDTH;
+	}
+}
+
+static int suniv_oled_init(void)
+{
+	const u8 init_cmds[] = {
+		0xAE,       /* display off */
+		0xD5, 0x80, /* clock divide */
+		0xA8, 0x3F, /* multiplex 1/64 */
+		0xD3, 0x00, /* display offset */
+		0x40,       /* start line */
+		0x8D, 0x14, /* charge pump */
+		0x20, 0x02, /* page addressing mode */
+		0xA1,       /* segment remap (mirror) */
+		0xC0,       /* COM scan dir (normal) */
+		0xDA, 0x12, /* COM pins */
+		0x81, 0x7F, /* contrast */
+		0xD9, 0xF1, /* pre-charge */
+		0xDB, 0x40, /* VCOM detect */
+		0xA4,       /* display follows RAM */
+		0xA6,       /* normal display */
+		0xAF,       /* display on */
+	};
+	int ret;
+
+	if (oled_inited)
+		return 0;
+
+	oled_gpio_sda = sunxi_name_to_gpio("PD16");
+	oled_gpio_scl = sunxi_name_to_gpio("PD15");
+	if (oled_gpio_sda < 0 || oled_gpio_scl < 0) {
+		return -EINVAL;
+	}
+
+	ret = gpio_request(oled_gpio_sda, "oled-sda");
+	if (ret) {
+		printf("suniv-oled: gpio_request sda failed: %d\n", ret);
+		return ret;
+	}
+
+	ret = gpio_request(oled_gpio_scl, "oled-scl");
+	if (ret) {
+		printf("suniv-oled: gpio_request scl failed: %d\n", ret);
+		return ret;
+	}
+
+	sunxi_gpio_set_pull(oled_gpio_sda, SUNXI_GPIO_PULL_UP);
+	sunxi_gpio_set_pull(oled_gpio_scl, SUNXI_GPIO_PULL_UP);
+	oled_sda(1);
+	oled_scl(1);
+
+	ret = oled_i2c_write(0x00, init_cmds, sizeof(init_cmds));
+	if (ret) {
+		printf("suniv-oled: init cmds write failed: %d\n", ret);
+	} else {
+		oled_inited = true;
+		printf("suniv-oled: init ok\n");
+	}
+
+	return ret;
+}
+
+static void suniv_oled_show_version(void)
+{
+	u8 fb[OLED_WIDTH * OLED_PAGES];
+	char dis_buf1[18];
+	char dis_buf2[18];
+	char dis_buf3[18];
+	const char *flash_name = "n/a";
+	struct spi_flash *flash;
+	int page;
+	int ret;
+
+	ret = suniv_oled_init();
+	if (ret) {
+		printf("suniv-oled: init failed: %d\n", ret);
+		return;
+	}
+
+	memset(fb, 0, sizeof(fb));
+
+	sprintf(dis_buf1, "%.14s", U_BOOT_VERSION);
+	sprintf(dis_buf2, "DRAM: %02d MB", (int)(gd->ram_size >> 20));
+
+	flash = spi_flash_probe(CONFIG_SF_DEFAULT_BUS, CONFIG_SF_DEFAULT_CS,
+				 CONFIG_SF_DEFAULT_SPEED, CONFIG_SF_DEFAULT_MODE);
+	if (flash && flash->name && *flash->name)
+		flash_name = flash->name;
+	sprintf(dis_buf3, "MTD: %s", flash_name);
+
+	oled_draw_text(fb, 0, dis_buf1);
+	oled_draw_text(fb, 1, dis_buf2);
+	oled_draw_text(fb, 2, dis_buf3);
+	oled_draw_text(fb, 3, "Loading Kernel..");
+	
+
+	for (page = 0; page < OLED_PAGES; page++) {
+		u8 cmd[] = {
+			(u8)(0xB0 | page),
+			0x00,
+			0x10,
+		};
+		ret = oled_i2c_write(0x00, cmd, sizeof(cmd));
+		if (ret) {
+			printf("suniv-oled: set page %d failed: %d\n",
+			       page, ret);
+			return;
+		}
+		ret = oled_i2c_write(0x40, &fb[page * OLED_WIDTH],
+				     OLED_WIDTH);
+		if (ret) {
+			printf("suniv-oled: write page %d failed: %d\n",
+			       page, ret);
+			return;
+		}
+	}
+}
+#endif
 
 #if defined CONFIG_VIDEO_LCD_PANEL_I2C && !(defined CONFIG_SPL_BUILD)
 /* So that we can use pin names in Kconfig and sunxi_name_to_gpio() */
@@ -864,6 +1125,10 @@ int misc_init_r(void)
 	}
 
 	setup_environment(gd->fdt_blob);
+
+#if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_OLED)
+	suniv_oled_show_version();
+#endif
 
 #ifdef CONFIG_USB_ETHER
 	usb_ether_init();

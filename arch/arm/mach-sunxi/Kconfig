@@ -157,6 +157,14 @@ config MACH_SUNIV
 	select SUNXI_GEN_SUN6I
 	select SUPPORT_SPL
 
+config SUNIV_OLED
+	bool "Enable SSD1312 OLED banner on PD15/PD16"
+	depends on MACH_SUNIV
+	help
+	  Enable a small version banner on a 128x64 SSD1312/SSD1306-compatible
+	  OLED connected via bit-banged I2C on PD15 (SDA) and PD16 (SCL).
+	  The banner is drawn during U-Boot misc_init_r().
+
 config MACH_SUN4I
 	bool "sun4i (Allwinner A10)"
 	select CPU_V7A
