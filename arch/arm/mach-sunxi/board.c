@@ -328,7 +328,7 @@ void board_boot_order(u32 *spl_boot_list)
 	}
 
 #ifdef CONFIG_MMC
-	spl_boot_list[i++] = BOOT_DEVICE_MMC1;
+	// spl_boot_list[i++] = BOOT_DEVICE_MMC1;
 #endif
 	spl_boot_list[i++] = BOOT_DEVICE_SPI;
 }
