@@ -288,7 +288,7 @@ uint32_t sunxi_get_boot_device(void)
  * By adding 120KB to the normal offset when booting from a "high" location
  * we can support both cases.
  */
-#ifdef CONFIG_MMC
+#if 0
 unsigned long spl_mmc_get_uboot_raw_sector(struct mmc *mmc)
 {
 	unsigned long sector = CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_SECTOR;
@@ -340,7 +340,7 @@ void board_init_f(ulong dummy)
 
 #ifdef CONFIG_SPL_I2C_SUPPORT
 	/* Needed early by sunxi_board_init if PMU is enabled */
-	i2c_init(CONFIG_SYS_I2C_SPEED, CONFIG_SYS_I2C_SLAVE);
+	// i2c_init(CONFIG_SYS_I2C_SPEED, CONFIG_SYS_I2C_SLAVE);
 #endif
 	sunxi_board_init();
 }
