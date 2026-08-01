@@ -47,6 +47,8 @@
 #if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_OLED)
 #include <i2c.h>
 #include <linux/errno.h>
+#include <version.h>
+#include <video_font.h>
 #endif
 #if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_DIRECT_SPI_BOOT)
 #include <spi_flash.h>
@@ -90,68 +92,16 @@ static void oled_set_pixel(u8 *buf, int x, int y)
 	buf[page * OLED_WIDTH + x] |= (1 << bit);
 }
 
-struct oled_glyph {
-	char ch;
-	u8 col[5];
-};
-
-static const struct oled_glyph oled_font[] = {
-	{ ' ', { 0x00, 0x00, 0x00, 0x00, 0x00 } },
-	{ '-', { 0x08, 0x08, 0x08, 0x08, 0x08 } },
-	{ '.', { 0x00, 0x60, 0x60, 0x00, 0x00 } },
-	{ '0', { 0x3e, 0x51, 0x49, 0x45, 0x3e } },
-	{ '1', { 0x00, 0x42, 0x7f, 0x40, 0x00 } },
-	{ '2', { 0x42, 0x61, 0x51, 0x49, 0x46 } },
-	{ '3', { 0x21, 0x41, 0x45, 0x4b, 0x31 } },
-	{ '4', { 0x18, 0x14, 0x12, 0x7f, 0x10 } },
-	{ '5', { 0x27, 0x45, 0x45, 0x45, 0x39 } },
-	{ '6', { 0x3c, 0x4a, 0x49, 0x49, 0x30 } },
-	{ '7', { 0x01, 0x71, 0x09, 0x05, 0x03 } },
-	{ '8', { 0x36, 0x49, 0x49, 0x49, 0x36 } },
-	{ '9', { 0x06, 0x49, 0x49, 0x29, 0x1e } },
-	{ 'A', { 0x7e, 0x11, 0x11, 0x11, 0x7e } },
-	{ 'B', { 0x7f, 0x49, 0x49, 0x49, 0x36 } },
-	{ 'D', { 0x7f, 0x41, 0x41, 0x22, 0x1c } },
-	{ 'F', { 0x7f, 0x09, 0x09, 0x09, 0x01 } },
-	{ 'G', { 0x3e, 0x41, 0x49, 0x49, 0x7a } },
-	{ 'I', { 0x00, 0x41, 0x7f, 0x41, 0x00 } },
-	{ 'K', { 0x7f, 0x08, 0x14, 0x22, 0x41 } },
-	{ 'L', { 0x7f, 0x40, 0x40, 0x40, 0x40 } },
-	{ 'M', { 0x7f, 0x02, 0x0c, 0x02, 0x7f } },
-	{ 'N', { 0x7f, 0x04, 0x08, 0x10, 0x7f } },
-	{ 'O', { 0x3e, 0x41, 0x41, 0x41, 0x3e } },
-	{ 'P', { 0x7f, 0x09, 0x09, 0x09, 0x06 } },
-	{ 'R', { 0x7f, 0x09, 0x19, 0x29, 0x46 } },
-	{ 'S', { 0x46, 0x49, 0x49, 0x49, 0x31 } },
-	{ 'T', { 0x01, 0x01, 0x7f, 0x01, 0x01 } },
-	{ 'U', { 0x3f, 0x40, 0x40, 0x40, 0x3f } },
-};
-
-static const u8 *oled_find_glyph(char c)
-{
-	int i;
-
-	if (c >= 'a' && c <= 'z')
-		c -= 'a' - 'A';
-
-	for (i = 0; i < ARRAY_SIZE(oled_font); i++) {
-		if (oled_font[i].ch == c)
-			return oled_font[i].col;
-	}
-
-	return oled_font[0].col;
-}
-
 static void oled_draw_char(u8 *buf, int x, int y, char c)
 {
-	const u8 *glyph = oled_find_glyph(c);
+	const u8 *glyph = &video_fontdata[(u8)c * VIDEO_FONT_HEIGHT];
 	int row;
 	int col;
 
-	for (col = 0; col < 5; col++) {
-		u8 bits = glyph[col];
-		for (row = 0; row < 7; row++) {
-			if (bits & (1 << row))
+	for (row = 0; row < VIDEO_FONT_HEIGHT; row++) {
+		u8 bits = glyph[row];
+		for (col = 0; col < VIDEO_FONT_WIDTH; col++) {
+			if (bits & (1 << (7 - col)))
 				oled_set_pixel(buf, x + col, y + row);
 		}
 	}
@@ -162,9 +112,9 @@ static void oled_draw_text(u8 *buf, int row, const char *text)
 	int x = 0;
 	int i;
 
-	for (i = 0; i < (OLED_WIDTH / 6) && text[i]; i++) {
-		oled_draw_char(buf, x, row * 8, text[i]);
-		x += 6;
+	for (i = 0; i < (OLED_WIDTH / VIDEO_FONT_WIDTH) && text[i]; i++) {
+		oled_draw_char(buf, x, row * VIDEO_FONT_HEIGHT, text[i]);
+		x += VIDEO_FONT_WIDTH;
 	}
 }
 
@@ -210,12 +160,16 @@ static int suniv_oled_init(void)
 	return ret;
 }
 
-static void suniv_oled_show_boot(void)
+static void suniv_oled_show_version(const char *flash_name)
 {
 	u8 fb[OLED_WIDTH * OLED_PAGES];
-	char dram[16];
+	char dis_buf1[18];
+	char dis_buf2[18];
+	char dis_buf3[18];
+	char flash_name_upper[16];
 	int page;
 	int ret;
+	int i;
 
 	ret = suniv_oled_init();
 	if (ret) {
@@ -225,11 +179,27 @@ static void suniv_oled_show_boot(void)
 
 	memset(fb, 0, sizeof(fb));
 
-	sprintf(dram, "DRAM %dM", (int)(gd->ram_size >> 20));
-	oled_draw_text(fb, 0, "U-BOOT");
-	oled_draw_text(fb, 1, dram);
-	oled_draw_text(fb, 2, "SPI NOR");
-	oled_draw_text(fb, 3, "BOOTING...");
+	if (!flash_name || !*flash_name)
+		flash_name = "n/a";
+
+	for (i = 0; i < sizeof(flash_name_upper) - 1 && flash_name[i]; i++) {
+		char c = flash_name[i];
+
+		if (c >= 'a' && c <= 'z')
+			c -= 'a' - 'A';
+		flash_name_upper[i] = c;
+	}
+	flash_name_upper[i] = '\0';
+
+	snprintf(dis_buf1, sizeof(dis_buf1), "%.14s", U_BOOT_VERSION);
+	snprintf(dis_buf2, sizeof(dis_buf2), "DRAM: %02d MB",
+		 (int)(gd->ram_size >> 20));
+	snprintf(dis_buf3, sizeof(dis_buf3), "MTD: %s", flash_name_upper);
+
+	oled_draw_text(fb, 0, dis_buf1);
+	oled_draw_text(fb, 1, dis_buf2);
+	oled_draw_text(fb, 2, dis_buf3);
+	oled_draw_text(fb, 3, "Loading Kernel..");
 
 	for (page = 0; page < OLED_PAGES; page++) {
 		u8 cmd[] = {
@@ -261,6 +231,9 @@ int last_stage_init(void)
 		.name = "bootz",
 	};
 	struct spi_flash *flash;
+#ifdef CONFIG_SUNIV_OLED
+	const char *flash_name = "n/a";
+#endif
 	char *bootz_argv[] = {
 		"bootz",
 		__stringify(CONFIG_SUNIV_DIRECT_SPI_BOOT_KERNEL_ADDR),
@@ -269,16 +242,18 @@ int last_stage_init(void)
 	};
 	int ret;
 
-#ifdef CONFIG_SUNIV_OLED
-	suniv_oled_show_boot();
-#endif
-
 	flash = spi_flash_probe(CONFIG_SF_DEFAULT_BUS, CONFIG_SF_DEFAULT_CS,
 				CONFIG_SF_DEFAULT_SPEED, CONFIG_SF_DEFAULT_MODE);
 	if (!flash) {
 		printf("suniv-direct: SPI flash probe failed\n");
 		hang();
 	}
+
+#ifdef CONFIG_SUNIV_OLED
+	if (flash->name && *flash->name)
+		flash_name = flash->name;
+	suniv_oled_show_version(flash_name);
+#endif
 
 	ret = spi_flash_read(flash, CONFIG_SUNIV_DIRECT_SPI_BOOT_FDT_OFFS,
 			     CONFIG_SUNIV_DIRECT_SPI_BOOT_FDT_SIZE,
@@ -1128,8 +1103,9 @@ int misc_init_r(void)
 
 	setup_environment(gd->fdt_blob);
 
-#if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_OLED)
-	suniv_oled_show_boot();
+#if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_OLED) && \
+	!defined(CONFIG_SUNIV_DIRECT_SPI_BOOT)
+	suniv_oled_show_version(NULL);
 #endif
 
 #ifdef CONFIG_USB_ETHER
