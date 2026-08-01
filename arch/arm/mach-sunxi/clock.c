@@ -36,13 +36,30 @@ int clock_init(void)
 }
 
 /* These functions are shared between various SoCs so put them here. */
-#if defined CONFIG_SUNXI_GEN_SUN6I && !defined CONFIG_MACH_SUN9I && \
-	!defined CONFIG_MACH_SUNIV
+#if defined CONFIG_SUNXI_GEN_SUN6I && !defined CONFIG_MACH_SUN9I
 int clock_twi_onoff(int port, int state)
 {
 	struct sunxi_ccm_reg *const ccm =
 		(struct sunxi_ccm_reg *)SUNXI_CCM_BASE;
 
+#ifdef CONFIG_MACH_SUNIV
+	if (port < 0 || port > 2)
+		return -1;
+
+	if (state) {
+		setbits_le32(&ccm->apb1_gate,
+			     CLK_GATE_OPEN << (APB1_GATE_TWI_SHIFT + port));
+		setbits_le32(&ccm->apb1_reset_cfg,
+			     1 << (APB1_RESET_TWI_SHIFT + port));
+	} else {
+		clrbits_le32(&ccm->apb1_reset_cfg,
+			     1 << (APB1_RESET_TWI_SHIFT + port));
+		clrbits_le32(&ccm->apb1_gate,
+			     CLK_GATE_OPEN << (APB1_GATE_TWI_SHIFT + port));
+	}
+
+	return 0;
+#else
 	if (port == 5) {
 		if (state)
 			prcm_apb0_enable(
@@ -67,5 +84,6 @@ int clock_twi_onoff(int port, int state)
 	}
 
 	return 0;
+#endif
 }
 #endif

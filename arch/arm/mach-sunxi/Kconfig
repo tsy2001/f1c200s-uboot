@@ -160,10 +160,57 @@ config MACH_SUNIV
 config SUNIV_OLED
 	bool "Enable SSD1312 OLED banner on PD15/PD16"
 	depends on MACH_SUNIV
+	select I2C2_ENABLE
 	help
 	  Enable a small version banner on a 128x64 SSD1312/SSD1306-compatible
-	  OLED connected via bit-banged I2C on PD15 (SDA) and PD16 (SCL).
-	  The banner is drawn during U-Boot misc_init_r().
+	  OLED connected to hardware I2C2 on PD15 (SCL) and PD16 (SDA).
+	  The banner is drawn before the direct SPI flash boot path.
+
+config SUNIV_OLED_I2C_BUS
+	int "SUNIV OLED hardware I2C bus"
+	depends on SUNIV_OLED
+	default 2
+	help
+	  Hardware TWI controller number used by the boot OLED.
+
+config SUNIV_DIRECT_SPI_BOOT
+	bool "Directly boot zImage from SPI NOR"
+	depends on MACH_SUNIV && SPI_FLASH
+	select CMD_BOOTZ
+	select LAST_STAGE_INIT
+	help
+	  Skip the normal boot command path and directly read a DTB and zImage
+	  from SPI NOR before calling bootz.
+
+config SUNIV_DIRECT_SPI_BOOT_FDT_ADDR
+	hex "SUNIV direct boot FDT load address"
+	depends on SUNIV_DIRECT_SPI_BOOT
+	default 0x80C00000
+
+config SUNIV_DIRECT_SPI_BOOT_FDT_OFFS
+	hex "SUNIV direct boot FDT flash offset"
+	depends on SUNIV_DIRECT_SPI_BOOT
+	default 0x4B000
+
+config SUNIV_DIRECT_SPI_BOOT_FDT_SIZE
+	hex "SUNIV direct boot FDT read size"
+	depends on SUNIV_DIRECT_SPI_BOOT
+	default 0x5000
+
+config SUNIV_DIRECT_SPI_BOOT_KERNEL_ADDR
+	hex "SUNIV direct boot kernel load address"
+	depends on SUNIV_DIRECT_SPI_BOOT
+	default 0x80008000
+
+config SUNIV_DIRECT_SPI_BOOT_KERNEL_OFFS
+	hex "SUNIV direct boot kernel flash offset"
+	depends on SUNIV_DIRECT_SPI_BOOT
+	default 0x50000
+
+config SUNIV_DIRECT_SPI_BOOT_KERNEL_SIZE
+	hex "SUNIV direct boot kernel read size"
+	depends on SUNIV_DIRECT_SPI_BOOT
+	default 0x300000
 
 config MACH_SUN4I
 	bool "sun4i (Allwinner A10)"
@@ -711,7 +758,7 @@ config I2C0_ENABLE
 	bool "Enable I2C/TWI controller 0"
 	default y if MACH_SUN4I || MACH_SUN5I || MACH_SUN7I || MACH_SUN8I_R40
 	default n if MACH_SUN6I || MACH_SUN8I
-	select CMD_I2C
+	select CMD_I2C if !SUNIV_DIRECT_SPI_BOOT
 	---help---
 	This allows enabling I2C/TWI controller 0 by muxing its pins, enabling
 	its clock and setting up the bus. This is especially useful on devices
@@ -721,14 +768,14 @@ config I2C0_ENABLE
 config I2C1_ENABLE
 	bool "Enable I2C/TWI controller 1"
 	default n
-	select CMD_I2C
+	select CMD_I2C if !SUNIV_DIRECT_SPI_BOOT
 	---help---
 	See I2C0_ENABLE help text.
 
 config I2C2_ENABLE
 	bool "Enable I2C/TWI controller 2"
 	default n
-	select CMD_I2C
+	select CMD_I2C if !SUNIV_DIRECT_SPI_BOOT
 	---help---
 	See I2C0_ENABLE help text.
 
@@ -736,7 +783,7 @@ if MACH_SUN6I || MACH_SUN7I
 config I2C3_ENABLE
 	bool "Enable I2C/TWI controller 3"
 	default n
-	select CMD_I2C
+	select CMD_I2C if !SUNIV_DIRECT_SPI_BOOT
 	---help---
 	See I2C0_ENABLE help text.
 endif
@@ -746,7 +793,7 @@ config R_I2C_ENABLE
 	bool "Enable the PRCM I2C/TWI controller"
 	# This is used for the pmic on H3
 	default y if SY8106A_POWER
-	select CMD_I2C
+	select CMD_I2C if !SUNIV_DIRECT_SPI_BOOT
 	---help---
 	Set this to y to enable the I2C controller which is part of the PRCM.
 endif
@@ -755,7 +802,7 @@ if MACH_SUN7I
 config I2C4_ENABLE
 	bool "Enable I2C/TWI controller 4"
 	default n
-	select CMD_I2C
+	select CMD_I2C if !SUNIV_DIRECT_SPI_BOOT
 	---help---
 	See I2C0_ENABLE help text.
 endif

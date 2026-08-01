@@ -11,6 +11,7 @@
  */
 
 #include <common.h>
+#include <command.h>
 #include <dm.h>
 #include <env.h>
 #include <hang.h>
@@ -44,9 +45,10 @@
 #include <sy8106a.h>
 #include <asm/setup.h>
 #if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_OLED)
-#include <version.h>
-#include <video_font.h>
+#include <i2c.h>
 #include <linux/errno.h>
+#endif
+#if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_DIRECT_SPI_BOOT)
 #include <spi_flash.h>
 #endif
 
@@ -56,97 +58,23 @@
 #define OLED_PAGES	(OLED_HEIGHT / 8)
 #define OLED_ADDR	0x3C
 
-static int oled_gpio_sda = -1;
-static int oled_gpio_scl = -1;
 static bool oled_inited;
-
-static void oled_delay(void)
-{
-	udelay(5);
-}
-
-static void oled_sda(int high)
-{
-	if (high)
-		gpio_direction_input(oled_gpio_sda);
-	else
-		gpio_direction_output(oled_gpio_sda, 0);
-}
-
-static void oled_scl(int high)
-{
-	if (high)
-		gpio_direction_input(oled_gpio_scl);
-	else
-		gpio_direction_output(oled_gpio_scl, 0);
-}
-
-static void oled_i2c_start(void)
-{
-	oled_sda(1);
-	oled_scl(1);
-	oled_delay();
-	oled_sda(0);
-	oled_delay();
-	oled_scl(0);
-}
-
-static void oled_i2c_stop(void)
-{
-	oled_sda(0);
-	oled_delay();
-	oled_scl(1);
-	oled_delay();
-	oled_sda(1);
-	oled_delay();
-}
-
-static int oled_i2c_write_byte(u8 data)
-{
-	int bit;
-	int nack;
-
-	for (bit = 0; bit < 8; bit++) {
-		oled_sda(data & 0x80);
-		oled_delay();
-		oled_scl(1);
-		oled_delay();
-		oled_scl(0);
-		data <<= 1;
-	}
-
-	/* ACK */
-	oled_sda(1);
-	oled_delay();
-	oled_scl(1);
-	oled_delay();
-	nack = gpio_get_value(oled_gpio_sda);
-	oled_scl(0);
-	oled_delay();
-
-	return nack ? -EIO : 0;
-}
 
 static int oled_i2c_write(u8 control, const u8 *data, size_t len)
 {
-	size_t i;
-	int ret;
+	return i2c_write(OLED_ADDR, control, 1, (u8 *)data, len);
+}
 
-	oled_i2c_start();
-	ret = oled_i2c_write_byte(OLED_ADDR << 1);
-	if (ret)
-		goto out;
-	ret = oled_i2c_write_byte(control);
-	if (ret)
-		goto out;
-	for (i = 0; i < len; i++) {
-		ret = oled_i2c_write_byte(data[i]);
-		if (ret)
-			goto out;
+static int suniv_i2c_set_hwadapnr(int hwadapnr)
+{
+	int i;
+
+	for (i = 0; i < CONFIG_SYS_NUM_I2C_BUSES; i++) {
+		if (i2c_get_adapter(i)->hwadapnr == hwadapnr)
+			return i2c_set_bus_num(i);
 	}
-out:
-	oled_i2c_stop();
-	return ret;
+
+	return -ENODEV;
 }
 
 static void oled_set_pixel(u8 *buf, int x, int y)
@@ -162,16 +90,68 @@ static void oled_set_pixel(u8 *buf, int x, int y)
 	buf[page * OLED_WIDTH + x] |= (1 << bit);
 }
 
+struct oled_glyph {
+	char ch;
+	u8 col[5];
+};
+
+static const struct oled_glyph oled_font[] = {
+	{ ' ', { 0x00, 0x00, 0x00, 0x00, 0x00 } },
+	{ '-', { 0x08, 0x08, 0x08, 0x08, 0x08 } },
+	{ '.', { 0x00, 0x60, 0x60, 0x00, 0x00 } },
+	{ '0', { 0x3e, 0x51, 0x49, 0x45, 0x3e } },
+	{ '1', { 0x00, 0x42, 0x7f, 0x40, 0x00 } },
+	{ '2', { 0x42, 0x61, 0x51, 0x49, 0x46 } },
+	{ '3', { 0x21, 0x41, 0x45, 0x4b, 0x31 } },
+	{ '4', { 0x18, 0x14, 0x12, 0x7f, 0x10 } },
+	{ '5', { 0x27, 0x45, 0x45, 0x45, 0x39 } },
+	{ '6', { 0x3c, 0x4a, 0x49, 0x49, 0x30 } },
+	{ '7', { 0x01, 0x71, 0x09, 0x05, 0x03 } },
+	{ '8', { 0x36, 0x49, 0x49, 0x49, 0x36 } },
+	{ '9', { 0x06, 0x49, 0x49, 0x29, 0x1e } },
+	{ 'A', { 0x7e, 0x11, 0x11, 0x11, 0x7e } },
+	{ 'B', { 0x7f, 0x49, 0x49, 0x49, 0x36 } },
+	{ 'D', { 0x7f, 0x41, 0x41, 0x22, 0x1c } },
+	{ 'F', { 0x7f, 0x09, 0x09, 0x09, 0x01 } },
+	{ 'G', { 0x3e, 0x41, 0x49, 0x49, 0x7a } },
+	{ 'I', { 0x00, 0x41, 0x7f, 0x41, 0x00 } },
+	{ 'K', { 0x7f, 0x08, 0x14, 0x22, 0x41 } },
+	{ 'L', { 0x7f, 0x40, 0x40, 0x40, 0x40 } },
+	{ 'M', { 0x7f, 0x02, 0x0c, 0x02, 0x7f } },
+	{ 'N', { 0x7f, 0x04, 0x08, 0x10, 0x7f } },
+	{ 'O', { 0x3e, 0x41, 0x41, 0x41, 0x3e } },
+	{ 'P', { 0x7f, 0x09, 0x09, 0x09, 0x06 } },
+	{ 'R', { 0x7f, 0x09, 0x19, 0x29, 0x46 } },
+	{ 'S', { 0x46, 0x49, 0x49, 0x49, 0x31 } },
+	{ 'T', { 0x01, 0x01, 0x7f, 0x01, 0x01 } },
+	{ 'U', { 0x3f, 0x40, 0x40, 0x40, 0x3f } },
+};
+
+static const u8 *oled_find_glyph(char c)
+{
+	int i;
+
+	if (c >= 'a' && c <= 'z')
+		c -= 'a' - 'A';
+
+	for (i = 0; i < ARRAY_SIZE(oled_font); i++) {
+		if (oled_font[i].ch == c)
+			return oled_font[i].col;
+	}
+
+	return oled_font[0].col;
+}
+
 static void oled_draw_char(u8 *buf, int x, int y, char c)
 {
-	const u8 *glyph = &video_fontdata[(u8)c * VIDEO_FONT_HEIGHT];
+	const u8 *glyph = oled_find_glyph(c);
 	int row;
 	int col;
 
-	for (row = 0; row < VIDEO_FONT_HEIGHT; row++) {
-		u8 bits = glyph[row];
-		for (col = 0; col < VIDEO_FONT_WIDTH; col++) {
-			if (bits & (1 << (7 - col)))
+	for (col = 0; col < 5; col++) {
+		u8 bits = glyph[col];
+		for (row = 0; row < 7; row++) {
+			if (bits & (1 << row))
 				oled_set_pixel(buf, x + col, y + row);
 		}
 	}
@@ -182,10 +162,9 @@ static void oled_draw_text(u8 *buf, int row, const char *text)
 	int x = 0;
 	int i;
 
-	for (i = 0; i < (OLED_WIDTH / VIDEO_FONT_WIDTH) && text[i];
-	     i++) {
-		oled_draw_char(buf, x, row * VIDEO_FONT_HEIGHT, text[i]);
-		x += VIDEO_FONT_WIDTH;
+	for (i = 0; i < (OLED_WIDTH / 6) && text[i]; i++) {
+		oled_draw_char(buf, x, row * 8, text[i]);
+		x += 6;
 	}
 }
 
@@ -214,48 +193,27 @@ static int suniv_oled_init(void)
 	if (oled_inited)
 		return 0;
 
-	oled_gpio_sda = sunxi_name_to_gpio("PD16");
-	oled_gpio_scl = sunxi_name_to_gpio("PD15");
-	if (oled_gpio_sda < 0 || oled_gpio_scl < 0) {
-		return -EINVAL;
-	}
-
-	ret = gpio_request(oled_gpio_sda, "oled-sda");
+	ret = suniv_i2c_set_hwadapnr(CONFIG_SUNIV_OLED_I2C_BUS);
 	if (ret) {
-		printf("suniv-oled: gpio_request sda failed: %d\n", ret);
+		printf("suniv-oled: i2c hw bus %d failed: %d\n",
+		       CONFIG_SUNIV_OLED_I2C_BUS, ret);
 		return ret;
 	}
-
-	ret = gpio_request(oled_gpio_scl, "oled-scl");
-	if (ret) {
-		printf("suniv-oled: gpio_request scl failed: %d\n", ret);
-		return ret;
-	}
-
-	sunxi_gpio_set_pull(oled_gpio_sda, SUNXI_GPIO_PULL_UP);
-	sunxi_gpio_set_pull(oled_gpio_scl, SUNXI_GPIO_PULL_UP);
-	oled_sda(1);
-	oled_scl(1);
 
 	ret = oled_i2c_write(0x00, init_cmds, sizeof(init_cmds));
 	if (ret) {
 		printf("suniv-oled: init cmds write failed: %d\n", ret);
 	} else {
 		oled_inited = true;
-		printf("suniv-oled: init ok\n");
 	}
 
 	return ret;
 }
 
-static void suniv_oled_show_version(void)
+static void suniv_oled_show_boot(void)
 {
 	u8 fb[OLED_WIDTH * OLED_PAGES];
-	char dis_buf1[18];
-	char dis_buf2[18];
-	char dis_buf3[18];
-	const char *flash_name = "n/a";
-	struct spi_flash *flash;
+	char dram[16];
 	int page;
 	int ret;
 
@@ -267,20 +225,11 @@ static void suniv_oled_show_version(void)
 
 	memset(fb, 0, sizeof(fb));
 
-	sprintf(dis_buf1, "%.14s", U_BOOT_VERSION);
-	sprintf(dis_buf2, "DRAM: %02d MB", (int)(gd->ram_size >> 20));
-
-	flash = spi_flash_probe(CONFIG_SF_DEFAULT_BUS, CONFIG_SF_DEFAULT_CS,
-				 CONFIG_SF_DEFAULT_SPEED, CONFIG_SF_DEFAULT_MODE);
-	if (flash && flash->name && *flash->name)
-		flash_name = flash->name;
-	sprintf(dis_buf3, "MTD: %s", flash_name);
-
-	oled_draw_text(fb, 0, dis_buf1);
-	oled_draw_text(fb, 1, dis_buf2);
-	oled_draw_text(fb, 2, dis_buf3);
-	oled_draw_text(fb, 3, "Loading Kernel..");
-	
+	sprintf(dram, "DRAM %dM", (int)(gd->ram_size >> 20));
+	oled_draw_text(fb, 0, "U-BOOT");
+	oled_draw_text(fb, 1, dram);
+	oled_draw_text(fb, 2, "SPI NOR");
+	oled_draw_text(fb, 3, "BOOTING...");
 
 	for (page = 0; page < OLED_PAGES; page++) {
 		u8 cmd[] = {
@@ -302,6 +251,54 @@ static void suniv_oled_show_version(void)
 			return;
 		}
 	}
+}
+#endif
+
+#if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_DIRECT_SPI_BOOT)
+int last_stage_init(void)
+{
+	struct cmd_tbl bootz_cmd = {
+		.name = "bootz",
+	};
+	struct spi_flash *flash;
+	char *bootz_argv[] = {
+		"bootz",
+		__stringify(CONFIG_SUNIV_DIRECT_SPI_BOOT_KERNEL_ADDR),
+		"-",
+		__stringify(CONFIG_SUNIV_DIRECT_SPI_BOOT_FDT_ADDR),
+	};
+	int ret;
+
+#ifdef CONFIG_SUNIV_OLED
+	suniv_oled_show_boot();
+#endif
+
+	flash = spi_flash_probe(CONFIG_SF_DEFAULT_BUS, CONFIG_SF_DEFAULT_CS,
+				CONFIG_SF_DEFAULT_SPEED, CONFIG_SF_DEFAULT_MODE);
+	if (!flash) {
+		printf("suniv-direct: SPI flash probe failed\n");
+		hang();
+	}
+
+	ret = spi_flash_read(flash, CONFIG_SUNIV_DIRECT_SPI_BOOT_FDT_OFFS,
+			     CONFIG_SUNIV_DIRECT_SPI_BOOT_FDT_SIZE,
+			     (void *)CONFIG_SUNIV_DIRECT_SPI_BOOT_FDT_ADDR);
+	if (ret) {
+		printf("suniv-direct: read fdt failed: %d\n", ret);
+		hang();
+	}
+
+	ret = spi_flash_read(flash, CONFIG_SUNIV_DIRECT_SPI_BOOT_KERNEL_OFFS,
+			     CONFIG_SUNIV_DIRECT_SPI_BOOT_KERNEL_SIZE,
+			     (void *)CONFIG_SUNIV_DIRECT_SPI_BOOT_KERNEL_ADDR);
+	if (ret) {
+		printf("suniv-direct: read kernel failed: %d\n", ret);
+		hang();
+	}
+
+	ret = do_bootz(&bootz_cmd, 0, ARRAY_SIZE(bootz_argv), bootz_argv);
+	printf("suniv-direct: bootz returned: %d\n", ret);
+	hang();
 }
 #endif
 
@@ -400,7 +397,11 @@ void i2c_init_board(void)
 #endif
 
 #ifdef CONFIG_I2C2_ENABLE
-#if defined(CONFIG_MACH_SUN4I) || \
+#if defined(CONFIG_MACH_SUNIV)
+	sunxi_gpio_set_cfgpin(SUNXI_GPD(15), SUNIV_GPD_TWI2);
+	sunxi_gpio_set_cfgpin(SUNXI_GPD(16), SUNIV_GPD_TWI2);
+	clock_twi_onoff(2, 1);
+#elif defined(CONFIG_MACH_SUN4I) || \
     defined(CONFIG_MACH_SUN7I) || \
     defined(CONFIG_MACH_SUN8I_R40)
 	sunxi_gpio_set_cfgpin(SUNXI_GPB(20), SUN4I_GPB_TWI2);
@@ -533,7 +534,8 @@ int board_init(void)
 	gpio_direction_output(macpwr_pin, 1);
 #endif
 
-#ifdef CONFIG_DM_I2C
+#if defined(CONFIG_DM_I2C) || \
+    (defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_OLED))
 	/*
 	 * Temporary workaround for enabling I2C clocks until proper sunxi DM
 	 * clk, reset and pinctrl drivers land.
@@ -1127,7 +1129,7 @@ int misc_init_r(void)
 	setup_environment(gd->fdt_blob);
 
 #if defined(CONFIG_MACH_SUNIV) && defined(CONFIG_SUNIV_OLED)
-	suniv_oled_show_version();
+	suniv_oled_show_boot();
 #endif
 
 #ifdef CONFIG_USB_ETHER

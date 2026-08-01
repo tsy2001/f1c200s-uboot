@@ -435,6 +435,7 @@ config BZIP2
 
 config ZLIB
 	bool
+	default n if SUNIV_DIRECT_SPI_BOOT
 	default y
 	help
 	  This enables ZLIB compression lib.

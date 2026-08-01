@@ -996,7 +996,7 @@ config ARCH_SOCFPGA
 config ARCH_SUNXI
 	bool "Support sunxi (Allwinner) SoCs"
 	select BINMAN
-	select CMD_GPIO
+	select CMD_GPIO if !SUNIV_DIRECT_SPI_BOOT
 	select CMD_MMC if MMC
 	select CMD_USB if DISTRO_DEFAULTS
 	select CLK
@@ -1930,5 +1930,4 @@ config SPL_LDSCRIPT
 	default "arch/arm/cpu/arm926ejs/mxs/u-boot-spl.lds" if (ARCH_MX23 || ARCH_MX28) && !SPL_FRAMEWORK
 	default "arch/arm/cpu/arm1136/u-boot-spl.lds" if CPU_ARM1136
 	default "arch/arm/cpu/armv8/u-boot-spl.lds" if ARM64
-
 
